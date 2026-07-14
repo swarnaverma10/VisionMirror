@@ -1,4 +1,17 @@
+---
+title: VisionMirror CatVTON
+emoji: 🐈
+colorFrom: pink
+colorTo: indigo
+sdk: gradio
+sdk_version: 5.49.1
+app_file: app.py
+pinned: false
+python_version: 3.9
+---
+
 # [ICLR 25]🐈 CatVTON: Concatenation Is All You Need for Virtual Try-On with Diffusion Models
+
 
 <div style="display: flex; justify-content: center; align-items: center;">
   <a href="http://arxiv.org/abs/2407.15886" style="margin: 0 2px;">

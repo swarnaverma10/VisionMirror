@@ -2,6 +2,14 @@ import argparse
 import os
 from datetime import datetime
 
+try:
+    import spaces
+except ImportError:
+    class spaces:
+        @staticmethod
+        def GPU(func):
+            return func
+
 import gradio as gr
 
 # Monkey-patch gradio_client to fix additionalProperties: true bug
@@ -126,24 +134,34 @@ def image_grid(imgs, rows, cols):
 
 
 args = parse_args()
-repo_path = snapshot_download(repo_id=args.resume_path)
-# Pipeline
-pipeline = CatVTONPipeline(
-    base_ckpt=args.base_model_path,
-    attn_ckpt=repo_path,
-    attn_ckpt_version="mix",
-    weight_dtype=init_weight_dtype(args.mixed_precision),
-    use_tf32=args.allow_tf32,
-    device='cuda'
-)
-# AutoMasker
+repo_path = None
+pipeline = None
+automasker = None
 mask_processor = VaeImageProcessor(vae_scale_factor=8, do_normalize=False, do_binarize=True, do_convert_grayscale=True)
-automasker = AutoMasker(
-    densepose_ckpt=os.path.join(repo_path, "DensePose"),
-    schp_ckpt=os.path.join(repo_path, "SCHP"),
-    device='cuda', 
-)
 
+def init_models():
+    global repo_path, pipeline, automasker
+    if pipeline is None:
+        repo_path = snapshot_download(repo_id=args.resume_path)
+        
+        # Pipeline
+        pipeline = CatVTONPipeline(
+            base_ckpt=args.base_model_path,
+            attn_ckpt=repo_path,
+            attn_ckpt_version="mix",
+            weight_dtype=init_weight_dtype(args.mixed_precision),
+            use_tf32=args.allow_tf32,
+            device='cuda'
+        )
+        
+        # AutoMasker
+        automasker = AutoMasker(
+            densepose_ckpt=os.path.join(repo_path, "DensePose"),
+            schp_ckpt=os.path.join(repo_path, "SCHP"),
+            device='cuda', 
+        )
+
+@spaces.GPU
 def submit_function(
     person_image,
     cloth_image,
@@ -153,6 +171,7 @@ def submit_function(
     seed,
     show_type
 ):
+    init_models()
     person_img_path = person_image["background"]
     mask = None
     if person_image.get("layers") and len(person_image["layers"]) > 0:

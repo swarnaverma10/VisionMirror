@@ -69,20 +69,18 @@ app.use('/uploads', express.static(uploadsDir));
 // ── API routes ────────────────────────────────────────────────────────────────
 app.use('/api', apiRoutes);
 
-// ── Production Frontend Serving ───────────────────────────────────────────────
-if (config.nodeEnv === 'production') {
-  const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
-  app.use(express.static(frontendDistPath));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(frontendDistPath, 'index.html'));
+// ── Health check route for root path ──────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({
+    status: "ok",
+    service: "VisionMirror Backend"
   });
-} else {
-  // ── 404 handler for development ─────────────────────────────────────────────
-  app.use((_req, res) => {
-    res.status(404).json({ success: false, message: 'Route not found.' });
-  });
-}
+});
+
+// ── 404 handler for unmatched routes ──────────────────────────────────────────
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found.' });
+});
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use(errorHandler);
