@@ -17,12 +17,33 @@ export const processTryOn = async (userImage, outfitImage) => {
     throw error;
   }
 
-  // 1. Verify user image exists locally
-  const userPhotoPath = path.join(backendRoot, userImage.replace(/^\/+/, ''));
+  // 1. Verify user image exists locally or download if relative/remote
+  let userPhotoPath = path.join(backendRoot, userImage.replace(/^\/+/, ''));
+  let tempUserPath = null;
+
   if (!fs.existsSync(userPhotoPath)) {
-    const error = new Error(`User image not found at path: ${userPhotoPath}`);
-    error.status = 404;
-    throw error;
+    let userUrl = userImage;
+    if (!userImage.startsWith('http://') && !userImage.startsWith('https://')) {
+      const baseUrl = config.corsOrigins[0] || 'http://localhost:5173';
+      let normalizedUser = userImage.replace(/^\/+/, '');
+      if (normalizedUser.startsWith('public/')) {
+        normalizedUser = normalizedUser.substring(7);
+      }
+      userUrl = `${baseUrl.replace(/\/$/, '')}/${normalizedUser}`;
+    }
+
+    const userExt = path.extname(userImage.split('?')[0]) || '.jpg';
+    tempUserPath = path.join(os.tmpdir(), `user-${uuid()}${userExt}`);
+
+    try {
+      const response = await axios.get(userUrl, { responseType: 'arraybuffer' });
+      fs.writeFileSync(tempUserPath, response.data);
+      userPhotoPath = tempUserPath;
+    } catch (downloadError) {
+      const error = new Error(`Failed to download user image from: ${userUrl}. Error: ${downloadError.message}`);
+      error.status = 404;
+      throw error;
+    }
   }
 
   // 2. Resolve outfit image URL
@@ -108,13 +129,20 @@ export const processTryOn = async (userImage, outfitImage) => {
     apiError.status = catvtonError.response?.status || 500;
     throw apiError;
   } finally {
-    // Cleanup temporary file
+    // Cleanup temporary files
+    try {
+      if (tempUserPath && fs.existsSync(tempUserPath)) {
+        fs.unlinkSync(tempUserPath);
+      }
+    } catch (cleanupError) {
+      console.error('[processTryOn] User temporary file cleanup error:', cleanupError.message);
+    }
     try {
       if (fs.existsSync(tempGarmentPath)) {
         fs.unlinkSync(tempGarmentPath);
       }
     } catch (cleanupError) {
-      console.error('[processTryOn] Temporary file cleanup error:', cleanupError.message);
+      console.error('[processTryOn] Garment temporary file cleanup error:', cleanupError.message);
     }
   }
 };
