@@ -100,12 +100,6 @@ export const processTryOn = async (userImage, outfitImage) => {
       message:        'Try-On pipeline complete'
     };
   } catch (catvtonError) {
-    // Only fall back for genuine network-level connection failures
-    const isNetworkError =
-      catvtonError.code === 'ECONNREFUSED' ||
-      catvtonError.code === 'ENOTFOUND'    ||
-      catvtonError.code === 'ETIMEDOUT';
-
     const errorMessage = catvtonError.response?.data?.message
       || catvtonError.message
       || 'CatVTON API failed.';
@@ -113,30 +107,10 @@ export const processTryOn = async (userImage, outfitImage) => {
     console.error('[processTryOn] CatVTON error:', {
       code: catvtonError.code,
       message: catvtonError.message,
-      isNetworkError,
       hasResponse: !!catvtonError.response,
       status: catvtonError.response?.status
     });
 
-    if (isNetworkError) {
-      // ── GRACEFUL FALLBACK ─────────────────────────────────────────────────
-      // CatVTON is offline — copy the outfit image to uploads/ and return it
-      // so the frontend flow works end-to-end for testing and demoing.
-      console.warn('[processTryOn] CatVTON unavailable — using fallback:', errorMessage);
-
-      const filename = `tryon-fallback-${uuid()}${ext}`;
-      const destPath = path.join(backendRoot, config.upload.dir, filename);
-      fs.copyFileSync(tempGarmentPath, destPath);
-
-      return {
-        status:         'fallback',
-        generatedImage: `/uploads/${filename}`,
-        message:        'CatVTON unavailable — showing outfit preview as fallback.'
-      };
-    }
-
-    // CatVTON is reachable but returned an error — propagate the real message
-    console.error('[processTryOn] CatVTON error:', errorMessage);
     const apiError = new Error(errorMessage);
     apiError.status = catvtonError.response?.status || 500;
     throw apiError;
