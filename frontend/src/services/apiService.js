@@ -3,7 +3,9 @@ import axios from 'axios';
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_URL 
+    ? `${import.meta.env.VITE_API_URL}/api` 
+    : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'),
   timeout: 60000, // 60s for AI calls
   // NOTE: Do NOT set a default Content-Type here.
   // Axios will auto-set 'application/json' for JSON bodies and

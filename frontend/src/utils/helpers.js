@@ -141,9 +141,11 @@ export function getImageUrl(path) {
     return path;
   }
   // Try resolving with Vite environment or fall back to default backend URL
-  const baseUrl = import.meta.env.VITE_API_BASE_URL 
-    ? import.meta.env.VITE_API_BASE_URL.replace(/\/api$/, '') 
-    : 'http://localhost:5000';
+  const baseUrl = import.meta.env.VITE_API_URL
+    ? import.meta.env.VITE_API_URL
+    : (import.meta.env.VITE_API_BASE_URL
+        ? import.meta.env.VITE_API_BASE_URL.replace(/\/api$/, '')
+        : 'http://localhost:5000');
   return `${baseUrl}/${path.replace(/^\//, '')}`;
 }
 
