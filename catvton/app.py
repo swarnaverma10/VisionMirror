@@ -240,15 +240,21 @@ def submit_function(
                 mask_np[mask_np > 0] = 255
                 mask_pil = Image.fromarray(mask_np)
 
-    person_resized, cloth_resized, mask_processed, result_image = gpu_inference(
-        person_pil,
-        cloth_pil,
-        mask_pil,
-        cloth_type,
-        num_inference_steps,
-        guidance_scale,
-        seed
-    )
+    try:
+        person_resized, cloth_resized, mask_processed, result_image = gpu_inference(
+            person_pil,
+            cloth_pil,
+            mask_pil,
+            cloth_type,
+            num_inference_steps,
+            guidance_scale,
+            seed
+        )
+    except Exception as e:
+        import traceback
+        print("ERROR inside submit_function during gpu_inference:")
+        traceback.print_exc()
+        raise e
 
     tmp_folder = args.output_dir
     date_str = datetime.now().strftime("%Y%m%d%H%M%S")
