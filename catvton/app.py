@@ -163,6 +163,44 @@ def init_models():
         )
 
 @spaces.GPU
+def gpu_inference(
+    person_image,
+    cloth_image,
+    mask,
+    cloth_type,
+    num_inference_steps,
+    guidance_scale,
+    seed
+):
+    init_models()
+    person_image = resize_and_crop(person_image, (args.width, args.height))
+    cloth_image = resize_and_padding(cloth_image, (args.width, args.height))
+
+    # Process mask
+    if mask is not None:
+        mask = resize_and_crop(mask, (args.width, args.height))
+    else:
+        mask = automasker(
+            person_image,
+            cloth_type
+        )['mask']
+    mask = mask_processor.blur(mask, blur_factor=9)
+
+    generator = None
+    if seed != -1:
+        generator = torch.Generator(device='cuda').manual_seed(seed)
+
+    result_image = pipeline(
+        image=person_image,
+        condition_image=cloth_image,
+        mask=mask,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        generator=generator
+    )[0]
+
+    return person_image, cloth_image, mask, result_image
+
 def submit_function(
     person_image,
     cloth_image,
@@ -172,7 +210,6 @@ def submit_function(
     seed,
     show_type
 ):
-    init_models()
     print("DEBUG app.py person_image:", person_image)
     print("DEBUG app.py cloth_image:", cloth_image)
 
@@ -184,15 +221,33 @@ def submit_function(
         raise gr.Error("No Condition Image provided.")
 
     person_img_path = person_image["background"]
-    mask = None
+    if not os.path.exists(person_img_path):
+        raise gr.Error(f"Person image file not found: {person_img_path}")
+    if not os.path.exists(cloth_image):
+        raise gr.Error(f"Condition image file not found: {cloth_image}")
+
+    person_pil = Image.open(person_img_path).convert("RGB")
+    cloth_pil = Image.open(cloth_image).convert("RGB")
+
+    mask_pil = None
     if person_image.get("layers") and len(person_image["layers"]) > 0:
         mask_path = person_image["layers"][0]
-        mask_img = Image.open(mask_path).convert("L")
-        if len(np.unique(np.array(mask_img))) > 1:
-            mask_np = np.array(mask_img)
-            mask_np[mask_np > 0] = 255
-            mask = Image.fromarray(mask_np)
-    person_image = person_img_path
+        if os.path.exists(mask_path):
+            mask_img = Image.open(mask_path).convert("L")
+            if len(np.unique(np.array(mask_img))) > 1:
+                mask_np = np.array(mask_img)
+                mask_np[mask_np > 0] = 255
+                mask_pil = Image.fromarray(mask_np)
+
+    person_resized, cloth_resized, mask_processed, result_image = gpu_inference(
+        person_pil,
+        cloth_pil,
+        mask_pil,
+        cloth_type,
+        num_inference_steps,
+        guidance_scale,
+        seed
+    )
 
     tmp_folder = args.output_dir
     date_str = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -200,54 +255,21 @@ def submit_function(
     if not os.path.exists(os.path.join(tmp_folder, date_str[:8])):
         os.makedirs(os.path.join(tmp_folder, date_str[:8]))
 
-    generator = None
-    if seed != -1:
-        generator = torch.Generator(device='cuda').manual_seed(seed)
-
-    person_image = Image.open(person_image).convert("RGB")
-    cloth_image = Image.open(cloth_image).convert("RGB")
-    person_image = resize_and_crop(person_image, (args.width, args.height))
-    cloth_image = resize_and_padding(cloth_image, (args.width, args.height))
-    
-    # Process mask
-    if mask is not None:
-        mask = resize_and_crop(mask, (args.width, args.height))
-    else:
-        mask = automasker(
-            person_image,
-            cloth_type
-        )['mask']
-    mask = mask_processor.blur(mask, blur_factor=9)
-
-    # Inference
-    # try:
-    result_image = pipeline(
-        image=person_image,
-        condition_image=cloth_image,
-        mask=mask,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale,
-        generator=generator
-    )[0]
-    # except Exception as e:
-    #     raise gr.Error(
-    #         "An error occurred. Please try again later: {}".format(e)
-    #     )
-    
     # Post-process
-    masked_person = vis_mask(person_image, mask)
-    save_result_image = image_grid([person_image, masked_person, cloth_image, result_image], 1, 4)
+    masked_person = vis_mask(person_resized, mask_processed)
+    save_result_image = image_grid([person_resized, masked_person, cloth_resized, result_image], 1, 4)
     save_result_image.save(result_save_path)
+
     if show_type == "result only":
         return result_image
     else:
-        width, height = person_image.size
+        width, height = person_resized.size
         if show_type == "input & result":
             condition_width = width // 2
-            conditions = image_grid([person_image, cloth_image], 2, 1)
+            conditions = image_grid([person_resized, cloth_resized], 2, 1)
         else:
             condition_width = width // 3
-            conditions = image_grid([person_image, masked_person , cloth_image], 3, 1)
+            conditions = image_grid([person_resized, masked_person, cloth_resized], 3, 1)
         conditions = conditions.resize((condition_width, height), Image.NEAREST)
         new_result_image = Image.new("RGB", (width + condition_width + 5, height))
         new_result_image.paste(conditions, (0, 0))
