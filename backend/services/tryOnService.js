@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const backendRoot = path.join(__dirname, '..');
 export const processTryOn = async (userImage, outfitImage) => {
+  console.log('[processTryOn] START — userImage:', userImage, '| outfitImage:', outfitImage);
   if (!userImage || !outfitImage) {
     const error = new Error('Both userImage and outfitImage are required.');
     error.status = 400;
@@ -39,11 +40,14 @@ export const processTryOn = async (userImage, outfitImage) => {
       const response = await axios.get(userUrl, { responseType: 'arraybuffer' });
       fs.writeFileSync(tempUserPath, response.data);
       userPhotoPath = tempUserPath;
+      console.log('[processTryOn] Downloaded user image to:', tempUserPath, '| size:', response.data.length);
     } catch (downloadError) {
       const error = new Error(`Failed to download user image from: ${userUrl}. Error: ${downloadError.message}`);
       error.status = 404;
       throw error;
     }
+  } else {
+    console.log('[processTryOn] User image found locally:', userPhotoPath);
   }
 
   // 2. Resolve outfit image URL
@@ -64,6 +68,7 @@ export const processTryOn = async (userImage, outfitImage) => {
   try {
     const response = await axios.get(outfitUrl, { responseType: 'arraybuffer' });
     fs.writeFileSync(tempGarmentPath, response.data);
+    console.log('[processTryOn] Downloaded outfit image to:', tempGarmentPath, '| size:', response.data.length);
   } catch (downloadError) {
     const error = new Error(`Failed to download outfit image from: ${outfitUrl}. Error: ${downloadError.message}`);
     error.status = 400;
@@ -81,7 +86,9 @@ export const processTryOn = async (userImage, outfitImage) => {
 
   try {
     // Attempt CatVTON
+    console.log('[processTryOn] Calling CatVTON with:', { userPhotoPath, tempGarmentPath, gender });
     const resultBuffer = await catvtonGenerate(userPhotoPath, tempGarmentPath, gender);
+    console.log('[processTryOn] CatVTON returned buffer, size:', resultBuffer.length);
 
     const filename   = `tryon-${uuid()}.jpg`;
     const resultPath = path.join(backendRoot, config.upload.dir, filename);
@@ -93,18 +100,23 @@ export const processTryOn = async (userImage, outfitImage) => {
       message:        'Try-On pipeline complete'
     };
   } catch (catvtonError) {
-    // Identify whether CatVTON is simply unreachable
+    // Only fall back for genuine network-level connection failures
     const isNetworkError =
       catvtonError.code === 'ECONNREFUSED' ||
       catvtonError.code === 'ENOTFOUND'    ||
-      catvtonError.code === 'ETIMEDOUT'    ||
-      catvtonError.message?.toLowerCase().includes('connect') ||
-      catvtonError.message?.toLowerCase().includes('timeout') ||
-      !catvtonError.response;
+      catvtonError.code === 'ETIMEDOUT';
 
     const errorMessage = catvtonError.response?.data?.message
       || catvtonError.message
       || 'CatVTON API failed.';
+
+    console.error('[processTryOn] CatVTON error:', {
+      code: catvtonError.code,
+      message: catvtonError.message,
+      isNetworkError,
+      hasResponse: !!catvtonError.response,
+      status: catvtonError.response?.status
+    });
 
     if (isNetworkError) {
       // ── GRACEFUL FALLBACK ─────────────────────────────────────────────────
