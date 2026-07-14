@@ -45,5 +45,7 @@ export default {
     allowedTypes:   envVars.ALLOWED_IMAGE_TYPES.split(','),
   },
 
-  corsOrigins: ['http://localhost:5173', 'http://localhost:3000'],
+  corsOrigins: envVars.NODE_ENV === 'production'
+    ? ['https://vision-mirror.vercel.app']
+    : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
 };
