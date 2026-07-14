@@ -39,6 +39,8 @@ export default function CameraCapturePage() {
   const [capturedImg,   setCapturedImg]   = useState(null);
   const [bodyDetected,  setBodyDetected]  = useState(false);
   const [isDesktop,     setIsDesktop]     = useState(window.innerWidth >= 1024);
+  const [posenetModel,  setPosenetModel]  = useState(null);
+  const [modelLoading,  setModelLoading]  = useState(true);
 
   /* ── Countdown ───────────────────────────────────────────────────────────── */
   const { count, running: isRunning, start, reset } = useCountdown(
@@ -54,14 +56,65 @@ export default function CameraCapturePage() {
     return () => { reset(); window.removeEventListener('resize', onResize); };
   }, [reset]);
 
-  // Simulate AI body-detection (desktop: instant; mobile: 2.5s delay)
+  // Load PoseNet model from CDN scripts
   useEffect(() => {
-    if (hasPermission !== true || capturedImg || isRunning) return;
-    if (isDesktop) { setBodyDetected(true); return; }
-    setBodyDetected(false);
-    const t = setTimeout(() => setBodyDetected(true), 2500);
-    return () => clearTimeout(t);
-  }, [hasPermission, capturedImg, isRunning, isDesktop]);
+    let active = true;
+    const loadModel = async () => {
+      while (active && !window.posenet) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (!active) return;
+      try {
+        const model = await window.posenet.load({
+          architecture: 'MobileNetV1',
+          outputStride: 16,
+          inputResolution: { width: 257, height: 257 },
+          multiplier: 0.75
+        });
+        if (active) {
+          setPosenetModel(model);
+          setModelLoading(false);
+        }
+      } catch (e) {
+        console.error("Failed to load PoseNet:", e);
+        if (active) setModelLoading(false);
+      }
+    };
+    loadModel();
+    return () => { active = false; };
+  }, []);
+
+  // Run PoseNet body detection on the webcam feed
+  useEffect(() => {
+    if (!posenetModel || hasPermission !== true || capturedImg || isRunning) return;
+
+    const detectBody = async () => {
+      const video = webcamRef.current?.video;
+      if (video && video.readyState === 4) {
+        try {
+          const pose = await posenetModel.estimateSinglePose(video, {
+            flipHorizontal: true
+          });
+          
+          const nose = pose.keypoints.find(k => k.part === 'nose');
+          const leftAnkle = pose.keypoints.find(k => k.part === 'leftAnkle');
+          const rightAnkle = pose.keypoints.find(k => k.part === 'rightAnkle');
+          
+          const minScore = 0.45;
+          
+          const headVisible = nose && nose.score >= minScore;
+          const feetVisible = (leftAnkle && leftAnkle.score >= minScore) || (rightAnkle && rightAnkle.score >= minScore);
+          
+          setBodyDetected(!!(headVisible && feetVisible));
+        } catch (e) {
+          console.error("Estimation error:", e);
+        }
+      }
+    };
+
+    const interval = setInterval(detectBody, 400);
+    return () => clearInterval(interval);
+  }, [posenetModel, hasPermission, capturedImg, isRunning]);
 
   /* ── Capture ─────────────────────────────────────────────────────────────── */
   const capturePhoto = useCallback(() => {
@@ -90,7 +143,7 @@ export default function CameraCapturePage() {
   };
 
   const handleStartCapture = () => {
-    if (!bodyDetected && !isDesktop) return;
+    if (hasPermission !== true) return;
     reset();
     start();
   };
@@ -98,7 +151,7 @@ export default function CameraCapturePage() {
   const handleRetake = () => {
     setCapturedImg(null);
     setProfilePhoto(null, null);
-    setBodyDetected(isDesktop);
+    setBodyDetected(false);
     reset();
   };
 
@@ -286,7 +339,6 @@ export default function CameraCapturePage() {
             />
           )}
 
-          {/* ── Body-detection banner (bottom of frame, live only) ── */}
           {!capturedImg && hasPermission === true && !isRunning && (
             <div
               className={`
@@ -294,16 +346,18 @@ export default function CameraCapturePage() {
                 px-3 py-1.5 rounded-xl text-center border pointer-events-none
                 text-[9px] font-bold uppercase tracking-widest
                 transition-colors duration-500
-                ${isDesktop || bodyDetected
-                  ? 'bg-brand-gold/85 border-brand-gold/30 text-brand-dark'
-                  : 'bg-red-500/85 border-red-400/30 text-white animate-pulse'}
+                ${modelLoading
+                  ? 'bg-brand-dark/85 border-white/10 text-white animate-pulse'
+                  : bodyDetected
+                    ? 'bg-brand-gold/85 border-brand-gold/30 text-brand-dark'
+                    : 'bg-brand-dark/75 border-white/15 text-white/90'}
               `}
             >
-              {isDesktop
-                ? '✓ Upper-body framing ready'
+              {modelLoading
+                ? '⚙ Initializing AI body guide...'
                 : bodyDetected
                   ? '✓ Full Body Detected — Ready'
-                  : '⚠ Stand 2–3 m away · full body must be visible'}
+                  : '💡 For best results, use a full-body photo'}
             </div>
           )}
 
@@ -352,7 +406,7 @@ export default function CameraCapturePage() {
                 <button
                   id="btn-capture"
                   onClick={handleStartCapture}
-                  disabled={hasPermission !== true || (!isDesktop && !bodyDetected)}
+                  disabled={hasPermission !== true}
                   className="btn-primary flex-1 shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Capture
