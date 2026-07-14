@@ -3,10 +3,17 @@ import path from 'path';
 import { v4 as uuid } from 'uuid';
 import config from '../config/index.js';
 
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const backendRoot = path.join(__dirname, '..');
+const uploadsDirResolved = path.resolve(backendRoot, config.upload.dir);
+
 // ─── Storage Engine ───────────────────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, config.upload.dir);
+    cb(null, uploadsDirResolved);
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';

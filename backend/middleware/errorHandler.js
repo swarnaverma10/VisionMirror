@@ -16,11 +16,11 @@ export default function errorHandler(err, _req, res, _next) {
 
   const status = err.status || err.statusCode || 500;
   
-  // Sanitize 500 errors in production
   let message = err.message || 'Internal Server Error';
-  if (config.nodeEnv === 'production' && status === 500) {
-    message = 'Internal Server Error';
-  }
 
-  res.status(status).json({ success: false, message });
+  res.status(status).json({ 
+    success: false, 
+    message,
+    stack: err.stack
+  });
 }
