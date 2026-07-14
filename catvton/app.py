@@ -151,6 +151,7 @@ def init_models():
             attn_ckpt_version="mix",
             weight_dtype=init_weight_dtype(args.mixed_precision),
             use_tf32=args.allow_tf32,
+            skip_safety_check=True,
             device='cuda'
         )
         
