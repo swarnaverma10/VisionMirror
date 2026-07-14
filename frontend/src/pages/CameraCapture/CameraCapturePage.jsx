@@ -358,24 +358,20 @@ export default function CameraCapturePage() {
                   Capture
                 </button>
 
-                {isDesktop && (
-                  <>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      accept="image/*"
-                      className="hidden"
-                    />
-                    <button
-                      id="btn-upload"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="btn-secondary flex-1"
-                    >
-                      Upload Photo
-                    </button>
-                  </>
-                )}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+                <button
+                  id="btn-upload"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn-secondary flex-1"
+                >
+                  Upload Photo
+                </button>
               </>
             )}
 
