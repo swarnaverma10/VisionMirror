@@ -38,9 +38,9 @@ async function detectServerType() {
       _serverType = 'gradio';
     }
   } catch {
-    // If / 404s or errors, try /info (Gradio-specific)
+    // If / 404s or errors, try /gradio_api/info (Gradio 5-specific)
     try {
-      await axios.get(`${BASE}/info`, { timeout: 5000 });
+      await axios.get(`${BASE}/gradio_api/info`, { timeout: 5000 });
       _serverType = 'gradio';
     } catch {
       _serverType = 'gradio'; // assume gradio as default (app.py)
@@ -72,7 +72,7 @@ async function callGradioApi(photoPath, garmentPath, gender) {
   // ── 1. Upload images ────────────────────────────────────────────────────────
   const personForm = new FormData();
   personForm.append('files', fs.createReadStream(photoPath));
-  const personUp = await axios.post(`${BASE}/upload`, personForm, {
+  const personUp = await axios.post(`${BASE}/gradio_api/upload`, personForm, {
     headers: { ...personForm.getHeaders(), ...headers },
     timeout: 30_000,
   });
@@ -80,7 +80,7 @@ async function callGradioApi(photoPath, garmentPath, gender) {
 
   const clothForm = new FormData();
   clothForm.append('files', fs.createReadStream(garmentPath));
-  const clothUp = await axios.post(`${BASE}/upload`, clothForm, {
+  const clothUp = await axios.post(`${BASE}/gradio_api/upload`, clothForm, {
     headers: { ...clothForm.getHeaders(), ...headers },
     timeout: 30_000,
   });
@@ -89,7 +89,7 @@ async function callGradioApi(photoPath, garmentPath, gender) {
   // ── 2. Get API info to find the function name ───────────────────────────────
   let fnName = 'predict_1'; // fallback to submit.click
   try {
-    const infoRes = await axios.get(`${BASE}/info`, { timeout: 10_000 });
+    const infoRes = await axios.get(`${BASE}/gradio_api/info`, { timeout: 10_000 });
     const namedEndpoints = infoRes.data?.named_endpoints || {};
     if (namedEndpoints['/submit_function']) {
       fnName = 'submit_function';
@@ -114,8 +114,18 @@ async function callGradioApi(photoPath, garmentPath, gender) {
   // CatVTON submit_function expects ImageEditor format for person_image
   const payload = {
     data: [
-      { background: { path: personPath }, layers: [], composite: null }, // person_image (ImageEditor)
-      { path: clothPath },   // cloth_image
+      { 
+        background: { 
+          path: personPath,
+          meta: { _type: 'gradio.FileData' }
+        }, 
+        layers: [], 
+        composite: null 
+      }, // person_image (ImageEditor)
+      { 
+        path: clothPath,
+        meta: { _type: 'gradio.FileData' }
+      },   // cloth_image
       clothType,             // cloth_type
       50,                    // num_inference_steps
       2.5,                   // guidance_scale
@@ -124,7 +134,7 @@ async function callGradioApi(photoPath, garmentPath, gender) {
     ],
   };
 
-  const submitUrl = `${BASE}/call/${fnName}`;
+  const submitUrl = `${BASE}/gradio_api/call/${fnName}`;
   console.log(`[catvtonService] Submitting to: ${submitUrl}`);
 
   const submitRes = await axios.post(submitUrl, payload, {
@@ -139,7 +149,7 @@ async function callGradioApi(photoPath, garmentPath, gender) {
   console.log(`[catvtonService] Event ID: ${eventId} — polling result...`);
 
   // ── 4. Poll SSE stream for completion ──────────────────────────────────────
-  const pollUrl = `${BASE}/call/${fnName}/${eventId}`;
+  const pollUrl = `${BASE}/gradio_api/call/${fnName}/${eventId}`;
   const pollRes = await axios.get(pollUrl, {
     headers,
     responseType: 'text',
@@ -192,7 +202,7 @@ async function callGradioApi(photoPath, garmentPath, gender) {
   console.log(`[catvtonService] Result image path: ${imgPath}`);
 
   // ── 6. Download result image ────────────────────────────────────────────────
-  const fetchUrl = imgPath.startsWith('http') ? imgPath : `${BASE}/file=${imgPath}`;
+  const fetchUrl = imgPath.startsWith('http') ? imgPath : `${BASE}/gradio_api/file=${imgPath}`;
   console.log(`[catvtonService] Fetching image from: ${fetchUrl}`);
 
   const imgRes = await axios.get(fetchUrl, {
@@ -214,12 +224,24 @@ async function callGradioApi(photoPath, garmentPath, gender) {
  */
 export async function generateTryOn(photoPath, garmentPath, gender) {
   const serverType = await detectServerType();
+  console.log(`[catvtonService] CatVTON Endpoint URL: ${BASE}`);
+  console.log(`[catvtonService] Request Payload: photoPath=${photoPath}, garmentPath=${garmentPath}, gender=${gender}`);
 
-  if (serverType === 'rest') {
-    console.log('[catvtonService] Using REST API (server.py)');
-    return callRestApi(photoPath, garmentPath, gender);
-  } else {
-    console.log('[catvtonService] Using Gradio API (app.py)');
-    return callGradioApi(photoPath, garmentPath, gender);
+  try {
+    if (serverType === 'rest') {
+      console.log('[catvtonService] Using REST API (server.py)');
+      return await callRestApi(photoPath, garmentPath, gender);
+    } else {
+      console.log('[catvtonService] Using Gradio API (app.py)');
+      return await callGradioApi(photoPath, garmentPath, gender);
+    }
+  } catch (err) {
+    console.error('[catvtonService] ERROR DETAILS:');
+    console.error(`- URL attempted: ${err.config?.url || 'N/A'}`);
+    console.error(`- Method: ${err.config?.method || 'N/A'}`);
+    console.error(`- Status: ${err.response?.status || 'N/A'}`);
+    console.error(`- Response Data: ${JSON.stringify(err.response?.data) || 'N/A'}`);
+    console.error(`- Stack: ${err.stack}`);
+    throw err;
   }
 }
