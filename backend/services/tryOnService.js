@@ -2,14 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuid } from 'uuid';
 import { fileURLToPath } from 'url';
+import axios from 'axios';
+import os from 'os';
 import { generateTryOn as catvtonGenerate } from './catvtonService.js';
 import config from '../config/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const backendRoot = path.join(__dirname, '..');
-const frontendRoot = path.join(backendRoot, '..', 'frontend', 'public');
-
 export const processTryOn = async (userImage, outfitImage) => {
   if (!userImage || !outfitImage) {
     const error = new Error('Both userImage and outfitImage are required.');
@@ -17,23 +17,35 @@ export const processTryOn = async (userImage, outfitImage) => {
     throw error;
   }
 
-  // Resolve absolute paths
-  let normalizedOutfit = outfitImage.replace(/^\/+/, '');
-  if (normalizedOutfit.startsWith('public/')) {
-    normalizedOutfit = normalizedOutfit.substring(7);
-  }
-
-  const userPhotoPath   = path.join(backendRoot, userImage.replace(/^\/+/, ''));
-  const garmentPhotoPath = path.join(frontendRoot, normalizedOutfit);
-
+  // 1. Verify user image exists locally
+  const userPhotoPath = path.join(backendRoot, userImage.replace(/^\/+/, ''));
   if (!fs.existsSync(userPhotoPath)) {
     const error = new Error(`User image not found at path: ${userPhotoPath}`);
     error.status = 404;
     throw error;
   }
-  if (!fs.existsSync(garmentPhotoPath)) {
-    const error = new Error(`Outfit image not found at path: ${garmentPhotoPath}`);
-    error.status = 404;
+
+  // 2. Resolve outfit image URL
+  let outfitUrl = outfitImage;
+  if (!outfitImage.startsWith('http://') && !outfitImage.startsWith('https://')) {
+    const baseUrl = config.corsOrigins[0] || 'http://localhost:5173';
+    let normalizedOutfit = outfitImage.replace(/^\/+/, '');
+    if (normalizedOutfit.startsWith('public/')) {
+      normalizedOutfit = normalizedOutfit.substring(7);
+    }
+    outfitUrl = `${baseUrl.replace(/\/$/, '')}/${normalizedOutfit}`;
+  }
+
+  // 3. Download outfit image to a temp file
+  const ext = path.extname(outfitImage.split('?')[0]) || '.jpg';
+  const tempGarmentPath = path.join(os.tmpdir(), `garment-${uuid()}${ext}`);
+
+  try {
+    const response = await axios.get(outfitUrl, { responseType: 'arraybuffer' });
+    fs.writeFileSync(tempGarmentPath, response.data);
+  } catch (downloadError) {
+    const error = new Error(`Failed to download outfit image from: ${outfitUrl}. Error: ${downloadError.message}`);
+    error.status = 400;
     throw error;
   }
 
@@ -48,7 +60,7 @@ export const processTryOn = async (userImage, outfitImage) => {
 
   try {
     // Attempt CatVTON
-    const resultBuffer = await catvtonGenerate(userPhotoPath, garmentPhotoPath, gender);
+    const resultBuffer = await catvtonGenerate(userPhotoPath, tempGarmentPath, gender);
 
     const filename   = `tryon-${uuid()}.jpg`;
     const resultPath = path.join(backendRoot, config.upload.dir, filename);
@@ -79,10 +91,9 @@ export const processTryOn = async (userImage, outfitImage) => {
       // so the frontend flow works end-to-end for testing and demoing.
       console.warn('[processTryOn] CatVTON unavailable — using fallback:', errorMessage);
 
-      const ext      = path.extname(garmentPhotoPath) || '.jpg';
       const filename = `tryon-fallback-${uuid()}${ext}`;
       const destPath = path.join(backendRoot, config.upload.dir, filename);
-      fs.copyFileSync(garmentPhotoPath, destPath);
+      fs.copyFileSync(tempGarmentPath, destPath);
 
       return {
         status:         'fallback',
@@ -96,5 +107,14 @@ export const processTryOn = async (userImage, outfitImage) => {
     const apiError = new Error(errorMessage);
     apiError.status = catvtonError.response?.status || 500;
     throw apiError;
+  } finally {
+    // Cleanup temporary file
+    try {
+      if (fs.existsSync(tempGarmentPath)) {
+        fs.unlinkSync(tempGarmentPath);
+      }
+    } catch (cleanupError) {
+      console.error('[processTryOn] Temporary file cleanup error:', cleanupError.message);
+    }
   }
 };
