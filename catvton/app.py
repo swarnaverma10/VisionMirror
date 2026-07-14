@@ -173,6 +173,16 @@ def submit_function(
     show_type
 ):
     init_models()
+    print("DEBUG app.py person_image:", person_image)
+    print("DEBUG app.py cloth_image:", cloth_image)
+
+    if person_image is None:
+        raise gr.Error("No Person Image provided.")
+    if isinstance(person_image, dict) and person_image.get("background") is None:
+        raise gr.Error("No background image found in Person Image editor.")
+    if cloth_image is None:
+        raise gr.Error("No Condition Image provided.")
+
     person_img_path = person_image["background"]
     mask = None
     if person_image.get("layers") and len(person_image["layers"]) > 0:
