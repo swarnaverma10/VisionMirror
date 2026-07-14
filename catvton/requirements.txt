@@ -17,5 +17,6 @@ av==12.3.0
 gradio==5.49.1
 peft>=0.17.0
 huggingface_hub
-torchvision
 fvcore
+pillow-avif-plugin
+torchvision

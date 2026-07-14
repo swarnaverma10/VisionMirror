@@ -41,6 +41,7 @@ import torch
 from diffusers.image_processor import VaeImageProcessor
 from huggingface_hub import snapshot_download
 from PIL import Image
+import pillow_avif
 
 from model.cloth_masker import AutoMasker, vis_mask
 from model.pipeline import CatVTONPipeline
