@@ -20,6 +20,7 @@ export default function errorHandler(err, _req, res, _next) {
 
   res.status(status).json({ 
     success: false, 
+    code: err.code || 'INTERNAL_SERVER_ERROR',
     message,
     stack: err.stack
   });

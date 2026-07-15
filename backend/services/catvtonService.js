@@ -17,6 +17,7 @@
 import axios      from 'axios';
 import FormData   from 'form-data';
 import fs         from 'fs';
+import readline   from 'readline';
 import config     from '../config/index.js';
 
 const BASE = config.catvton.apiUrl; // default: http://localhost:7860
@@ -89,7 +90,10 @@ async function callGradioApi(photoPath, garmentPath, gender) {
   // ── 2. Get API info to find the function name ───────────────────────────────
   let fnName = 'predict_1'; // fallback to submit.click
   try {
-    const infoRes = await axios.get(`${BASE}/gradio_api/info`, { timeout: 10_000 });
+    const infoRes = await axios.get(`${BASE}/gradio_api/info`, {
+      headers,
+      timeout: 10_000,
+    });
     const namedEndpoints = infoRes.data?.named_endpoints || {};
     if (namedEndpoints['/submit_function']) {
       fnName = 'submit_function';
@@ -150,42 +154,73 @@ async function callGradioApi(photoPath, garmentPath, gender) {
 
   // ── 4. Poll SSE stream for completion ──────────────────────────────────────
   const pollUrl = `${BASE}/gradio_api/call/${fnName}/${eventId}`;
-  const pollRes = await axios.get(pollUrl, {
-    headers,
-    responseType: 'text',
-    timeout: 300_000,
-  });
+  
+  const resultData = await new Promise((resolve, reject) => {
+    axios.get(pollUrl, {
+      headers,
+      responseType: 'stream',
+      timeout: 300_000,
+    }).then(response => {
+      const stream = response.data;
+      const rl = readline.createInterface({
+        input: stream,
+        terminal: false
+      });
 
-  // Parse SSE: look for "data: [...]" after "event: complete"
-  let resultData = null;
-  const lines = pollRes.data.split('\n');
-  let seenComplete = false;
-  for (const line of lines) {
-    if (line.trim() === 'event: complete') {
-      seenComplete = true;
-    } else if (seenComplete && line.startsWith('data:')) {
-      try {
-        resultData = JSON.parse(line.slice(5).trim());
-        break;
-      } catch {
-        // keep trying
-      }
-    } else if (!seenComplete && line.startsWith('data:')) {
-      // Some Gradio versions send data without explicit event: complete
-      try {
-        const parsed = JSON.parse(line.slice(5).trim());
-        if (Array.isArray(parsed)) {
-          resultData = parsed;
+      let seenComplete = false;
+      let hasErrorEvent = false;
+      let rawDataLogged = '';
+
+      rl.on('line', (line) => {
+        rawDataLogged += line + '\n';
+        const trimmed = line.trim();
+        if (trimmed === 'event: error') {
+          hasErrorEvent = true;
+        } else if (trimmed === 'event: complete') {
+          seenComplete = true;
+        } else if (line.startsWith('data:')) {
+          const dataStr = line.slice(5).trim();
+          if (hasErrorEvent) {
+            console.error(`[catvtonService] Gradio SSE returned error event. Raw Stream So Far:\n${rawDataLogged}`);
+            rl.close();
+            stream.destroy();
+            reject(new Error(`Gradio SSE stream returned event: error. Data: ${dataStr}`));
+          } else if (seenComplete) {
+            try {
+              const parsed = JSON.parse(dataStr);
+              rl.close();
+              stream.destroy();
+              resolve(parsed);
+            } catch (e) {
+              // keep parsing
+            }
+          } else {
+            // Some Gradio versions send data without explicit event: complete
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (Array.isArray(parsed)) {
+                rl.close();
+                stream.destroy();
+                resolve(parsed);
+              }
+            } catch (e) {
+              // skip
+            }
+          }
         }
-      } catch {
-        // skip
-      }
-    }
-  }
+      });
 
-  if (!resultData || !Array.isArray(resultData) || resultData.length === 0) {
-    throw new Error(`Gradio SSE did not contain a valid result. Raw: ${pollRes.data.slice(0, 500)}`);
-  }
+      rl.on('error', (err) => {
+        reject(err);
+      });
+
+      stream.on('end', () => {
+        reject(new Error(`Gradio SSE stream ended without complete event. Raw Logged:\n${rawDataLogged}`));
+      });
+    }).catch(err => {
+      reject(err);
+    });
+  });
 
   // ── 5. Extract image path from result ──────────────────────────────────────
   const output = resultData[0];

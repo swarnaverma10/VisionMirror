@@ -8,6 +8,7 @@ const envVarsSchema = Joi.object({
   
   CATVTON_API_URL: Joi.string().uri().default('http://localhost:7860'),
   CATVTON_API_KEY: Joi.string().allow('').default(''),
+  HF_TOKEN: Joi.string().allow('').default(''),
   
   OPENROUTER_API_KEY: Joi.string().when('NODE_ENV', { is: 'production', then: Joi.required(), otherwise: Joi.allow('') }),
   OPENROUTER_BASE_URL: Joi.string().uri().default('https://openrouter.ai/api/v1'),
@@ -30,7 +31,7 @@ export default {
 
   catvton: {
     apiUrl: envVars.CATVTON_API_URL,
-    apiKey: envVars.CATVTON_API_KEY,
+    apiKey: envVars.CATVTON_API_KEY || envVars.HF_TOKEN || '',
   },
 
   openrouter: {

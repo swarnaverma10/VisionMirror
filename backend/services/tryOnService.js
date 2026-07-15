@@ -111,8 +111,20 @@ export const processTryOn = async (userImage, outfitImage) => {
       status: catvtonError.response?.status
     });
 
-    const apiError = new Error(errorMessage);
-    apiError.status = catvtonError.response?.status || 500;
+    let errorCode = 'CATVTON_API_ERROR';
+    let finalMessage = errorMessage;
+
+    if (errorMessage.toLowerCase().includes('quota exceeded') || errorMessage.toLowerCase().includes('quota')) {
+      errorCode = 'HF_QUOTA_EXCEEDED';
+      finalMessage = 'Hugging Face ZeroGPU quota exceeded. Please configure a valid HF_TOKEN in the Space or try again later.';
+    } else if (errorMessage.toLowerCase().includes('event: error')) {
+      errorCode = 'HF_SPACE_ERROR';
+      finalMessage = 'Hugging Face Space returned a prediction error event. This is typically due to GPU quota exhaustion or service overload.';
+    }
+
+    const apiError = new Error(finalMessage);
+    apiError.status = catvtonError.response?.status || 502; // Bad Gateway since dependency failed
+    apiError.code = errorCode;
     throw apiError;
   } finally {
     // Cleanup temporary files
