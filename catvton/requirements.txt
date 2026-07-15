@@ -1,5 +1,5 @@
 accelerate
-git+https://github.com/huggingface/diffusers.git
+diffusers==0.29.2
 matplotlib==3.9.1.post1
 numpy==1.26.4
 opencv_python==4.10.0.84
