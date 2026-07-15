@@ -1,6 +1,15 @@
 import argparse
 import os
 from datetime import datetime
+from huggingface_hub import login
+
+token = os.environ.get("HF_TOKEN")
+if token:
+    try:
+        login(token=token)
+        print("Logged into Hugging Face Hub successfully using HF_TOKEN.")
+    except Exception as e:
+        print(f"Failed to log into Hugging Face Hub: {e}")
 
 try:
     import spaces
@@ -163,7 +172,7 @@ def init_models():
             device='cuda', 
         )
 
-@spaces.GPU
+@spaces.GPU(duration=15)
 def gpu_inference(
     person_image,
     cloth_image,
